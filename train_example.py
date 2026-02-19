@@ -42,7 +42,7 @@ BATCH_SIZE = 2
 CHANNELS = 3
 IMAGE_SIZE = 300
 
-NICKNAME = 'Carpo'
+NICKNAME = 'Ersa'
 #------------------------------------------------------------------------------------------------------------------
 
 def process_target(target_type):

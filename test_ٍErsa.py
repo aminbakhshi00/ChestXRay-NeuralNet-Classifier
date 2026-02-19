@@ -32,7 +32,7 @@ BATCH_SIZE = 32
 ## Process images in parallel
 AUTOTUNE = tf.data.AUTOTUNE
 
-NICKNAME = 'Carpo'
+NICKNAME = 'Ersa'
 #------------------------------------------------------------------------------------------------------------------
 
 def process_target(target_type):

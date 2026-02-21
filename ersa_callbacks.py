@@ -69,3 +69,28 @@ class PerClassMacroF1Callback(tf.keras.callbacks.Callback):
             report_parts.append(f"{label}:{float(score):.4f}")
 
         print(" - F1 per class [{}] - f1_avg:{:.4f}".format(", ".join(report_parts), macro_f1))
+
+
+class ValidationMacroF1Callback(tf.keras.callbacks.Callback):
+    def __init__(self, dataset):
+        super().__init__()
+        self.dataset = dataset
+
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is None:
+            logs = {}
+
+        y_true_batches = []
+        y_pred_batches = []
+        for features, targets in self.dataset:
+            logits = self.model(features, training=False)
+            y_true_batches.append(np.argmax(targets.numpy(), axis=1))
+            y_pred_batches.append(np.argmax(logits.numpy(), axis=1))
+
+        if not y_true_batches:
+            return
+
+        y_true = np.concatenate(y_true_batches, axis=0)
+        y_pred = np.concatenate(y_pred_batches, axis=0)
+        val_f1_macro = float(f1_score(y_true, y_pred, average="macro"))
+        logs["val_f1_macro"] = val_f1_macro

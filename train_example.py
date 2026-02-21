@@ -10,7 +10,7 @@ import sys
 from sklearn.metrics import f1_score, cohen_kappa_score, accuracy_score,  matthews_corrcoef
 from tensorflow.keras.utils import to_categorical
 from ersa_model import build_dense_patch_mlp
-from ersa_callbacks import PerClassMacroF1Callback
+from ersa_callbacks import PerClassMacroF1Callback, ValidationMacroF1Callback
 from ersa_dataloader import build_standard_dataset, build_class_balanced_dataset
 
 #------------------------------------------------------------------------------------------------------------------
@@ -206,17 +206,18 @@ def train_func(train_ds, val_ds):
 
     check_point = tf.keras.callbacks.ModelCheckpoint(
         'model_{}.keras'.format(NICKNAME),
-        monitor='val_loss',
-        mode='min',
+        monitor='val_f1_macro',
+        mode='max',
         save_best_only=True,
     )
     early_stop = tf.keras.callbacks.EarlyStopping(
-        monitor='val_loss',
-        mode='min',
+        monitor='val_f1_macro',
+        mode='max',
         patience=EARLY_STOP_PATIENCE,
         restore_best_weights=False,
         min_delta=1e-4,
     )
+    val_f1_callback = ValidationMacroF1Callback(val_ds)
     f1_callback = PerClassMacroF1Callback(
         train_ds,
         OUTPUTS_a,
@@ -229,7 +230,7 @@ def train_func(train_ds, val_ds):
         train_ds,
         epochs=n_epoch,
         validation_data=val_ds,
-        callbacks=[check_point, early_stop, f1_callback],
+        callbacks=[val_f1_callback, check_point, early_stop, f1_callback],
     )
 #------------------------------------------------------------------------------------------------------------------
 

@@ -27,7 +27,7 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=3):
     x = tf.keras.layers.Rescaling(1.0 / 255.0)(x)
     x = tf.keras.layers.Resizing(120, 120)(x)
 
-    # x = tf.keras.layers.RandomFlip("horizontal")(x)
+    x = tf.keras.layers.RandomFlip("horizontal")(x)
     x = tf.keras.layers.RandomRotation(0.02, fill_mode="reflect")(x)
     x = tf.keras.layers.RandomContrast(0.1)(x)
 
@@ -60,9 +60,9 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=3):
     x = tf.keras.layers.Concatenate()([x_mean, x_max])
 
     branch_a = tf.keras.layers.Dense(384, activation="gelu")(x)
-    # branch_a = tf.keras.layers.Dropout(0.2)(branch_a)
+    branch_a = tf.keras.layers.Dropout(0.1)(branch_a)
     branch_b = tf.keras.layers.Dense(384, activation="relu")(x)
-    # branch_b = tf.keras.layers.Dropout(0.2)(branch_b)
+    branch_b = tf.keras.layers.Dropout(0.1)(branch_b)
 
     x = tf.keras.layers.Concatenate()([branch_a, branch_b])
     x = tf.keras.layers.Add()([x, tf.keras.layers.Dense(768)(tf.keras.layers.Concatenate()([x_mean, x_max]))])

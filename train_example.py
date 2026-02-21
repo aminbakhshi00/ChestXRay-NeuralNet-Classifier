@@ -4,10 +4,14 @@ import numpy as np
 import random
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
 import tensorflow as tf
 import sys
 from sklearn.metrics import f1_score, cohen_kappa_score, accuracy_score,  matthews_corrcoef
 from tensorflow.keras.utils import to_categorical
+from ersa_model import build_dense_patch_mlp
+from ersa_callbacks import PerClassMacroF1Callback
+from ersa_dataloader import build_standard_dataset, build_class_balanced_dataset
 
 #------------------------------------------------------------------------------------------------------------------
 
@@ -35,8 +39,12 @@ DATA_DIR = os.getcwd() + os.path.sep + 'Data' + os.path.sep
 sep = os.path.sep
 os.chdir(OR_PATH) # Come back to the folder where the code resides , all files will be left on this directory
 
-n_epoch = 1
-BATCH_SIZE = 2
+n_epoch = 50
+BATCH_SIZE = 32
+F1_EVAL_MAX_BATCHES = 100
+VALIDATION_SPLIT = 0.05
+SPLIT_RANDOM_STATE = 42
+EARLY_STOP_PATIENCE = 50
 
 ## Image processing
 CHANNELS = 3
@@ -122,7 +130,7 @@ def process_path(feature, target):
     return img, label
 #------------------------------------------------------------------------------------------------------------------
 
-def get_target(num_classes):
+def get_target(dset_df, num_classes):
     '''
     Get the target from the dataset
     1 = multiclass
@@ -130,7 +138,7 @@ def get_target(num_classes):
     3 = binary
     '''
 
-    y_target = np.array(xdf_dset['target_class'].apply(lambda x: ([int(i) for i in str(x).split(",")])))
+    y_target = np.array(dset_df['target_class'].apply(lambda x: ([int(i) for i in str(x).split(",")])))
 
     end = np.zeros(num_classes)
     for s1 in y_target:
@@ -142,19 +150,32 @@ def get_target(num_classes):
 #------------------------------------------------------------------------------------------------------------------
 
 
-def read_data(num_classes):
+def read_data(dset_df, num_classes):
     '''
           reads the dataset and process the target
     '''
 
-    ds_inputs = np.array(DATA_DIR + xdf_dset['id'])
-    ds_targets = get_target(num_classes)
+    ds_inputs = np.array(DATA_DIR + dset_df['id'])
+    ds_targets = get_target(dset_df, num_classes)
+    return build_standard_dataset(ds_inputs, ds_targets, process_path, BATCH_SIZE, AUTOTUNE)
+#------------------------------------------------------------------------------------------------------------------
 
-    list_ds = tf.data.Dataset.from_tensor_slices((ds_inputs,ds_targets)) # creates a tensor from the image paths and targets
+def read_data_balanced(dset_df, num_classes):
+    '''
+          reads the train dataset with class-balanced sampling
+    '''
 
-    final_ds = list_ds.map(process_path, num_parallel_calls=AUTOTUNE).batch(BATCH_SIZE)
+    ds_inputs = np.array(DATA_DIR + dset_df['id'])
+    ds_targets = get_target(dset_df, num_classes)
 
-    return final_ds
+    return build_class_balanced_dataset(
+        ds_inputs=ds_inputs,
+        ds_targets=ds_targets,
+        process_path_fn=process_path,
+        batch_size=BATCH_SIZE,
+        autotune=AUTOTUNE,
+        epoch_samples=len(ds_inputs),
+    )
 #------------------------------------------------------------------------------------------------------------------
 
 def save_model(model):
@@ -167,36 +188,49 @@ def save_model(model):
 #------------------------------------------------------------------------------------------------------------------
 
 def model_definition():
-    # Define a Keras sequential model
-    model = tf.keras.Sequential()
-
-    # Define the first dense layer
-    model.add(tf.keras.layers.Dense(300, activation='relu', input_shape=(INPUTS_r,)))
-    model.add(tf.keras.layers.Dense(200, activation='relu'))
-    model.add(tf.keras.layers.Dense(100, activation='relu'))
-    model.add(tf.keras.layers.Dense(100, activation='relu'))
-    model.add(tf.keras.layers.Dense(80, activation='relu'))
-    model.add(tf.keras.layers.Dense(50, activation='relu'))
-
-    model.add(tf.keras.layers.Dense(OUTPUTS_a, activation='softmax')) #final layer , outputs_a is the number of targets
-
-    model.compile(optimizer='RMSprop', loss='categorical_crossentropy', metrics=['accuracy'])
+    model = build_dense_patch_mlp(
+        input_dim=INPUTS_r,
+        num_classes=OUTPUTS_a,
+        image_size=IMAGE_SIZE,
+        channels=CHANNELS,
+    )
 
     save_model(model) #print Summary
     return model
 #------------------------------------------------------------------------------------------------------------------
 
-def train_func(train_ds):
+def train_func(train_ds, val_ds):
     '''
         train the model
     '''
 
-    #early_stop = tf.keras.callbacks.EarlyStopping(monitor='accuracy', patience =100)
-    check_point = tf.keras.callbacks.ModelCheckpoint('model_{}.keras'.format(NICKNAME), monitor='accuracy', save_best_only=True)
+    check_point = tf.keras.callbacks.ModelCheckpoint(
+        'model_{}.keras'.format(NICKNAME),
+        monitor='val_loss',
+        mode='min',
+        save_best_only=True,
+    )
+    early_stop = tf.keras.callbacks.EarlyStopping(
+        monitor='val_loss',
+        mode='min',
+        patience=EARLY_STOP_PATIENCE,
+        restore_best_weights=False,
+        min_delta=1e-4,
+    )
+    f1_callback = PerClassMacroF1Callback(
+        train_ds,
+        OUTPUTS_a,
+        class_names=class_names,
+        max_batches=F1_EVAL_MAX_BATCHES,
+    )
     final_model = model_definition()
 
-    #final_model.fit(train_ds,  epochs=n_epoch, callbacks=[early_stop, check_point])
-    final_model.fit(train_ds,  epochs=n_epoch, callbacks=[check_point])
+    final_model.fit(
+        train_ds,
+        epochs=n_epoch,
+        validation_data=val_ds,
+        callbacks=[check_point, early_stop, f1_callback],
+    )
 #------------------------------------------------------------------------------------------------------------------
 
 def predict_func(test_ds):
@@ -309,16 +343,23 @@ def main():
 
     ## Processing Train dataset
 
-    xdf_dset = xdf_data[xdf_data["split"] == 'train'].copy()
+    xdf_train_full = xdf_data[xdf_data["split"] == 'train'].copy()
+    xdf_train, xdf_val = train_test_split(
+        xdf_train_full,
+        test_size=VALIDATION_SPLIT,
+        random_state=SPLIT_RANDOM_STATE,
+        stratify=xdf_train_full['target'],
+    )
 
-    train_ds = read_data( OUTPUTS_a )
-    train_func(train_ds)
+    train_ds = read_data_balanced(xdf_train, OUTPUTS_a)
+    val_ds = read_data(xdf_val, OUTPUTS_a)
+    train_func(train_ds, val_ds)
 
     # Preprocessing Test dataset
 
     xdf_dset = xdf_data[xdf_data["split"] == 'test'].copy()
 
-    test_ds= read_data(OUTPUTS_a)
+    test_ds= read_data(xdf_dset, OUTPUTS_a)
     predict_func(test_ds)
 
     ## Metrics Function over the result of the test dataset

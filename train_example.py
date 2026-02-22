@@ -42,9 +42,9 @@ os.chdir(OR_PATH) # Come back to the folder where the code resides , all files w
 n_epoch = 50
 BATCH_SIZE = 32
 F1_EVAL_MAX_BATCHES = 100
-VALIDATION_SPLIT = 0.05
+VALIDATION_SPLIT = 0.15
 SPLIT_RANDOM_STATE = 42
-EARLY_STOP_PATIENCE = 50
+EARLY_STOP_PATIENCE = 20
 
 ## Image processing
 CHANNELS = 3

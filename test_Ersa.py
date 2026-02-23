@@ -14,7 +14,6 @@ LAST UPDATE 10/21/21 LSDR METRICS
 02/14/2022 LSDR CHECK CONSISTENCY
 '''
 #------------------------------------------------------------------------------------------------------------------
-# Maybe useing the open-cv
 ## Image processing
 CHANNELS = 3
 IMAGE_SIZE = 300

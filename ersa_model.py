@@ -20,7 +20,7 @@ def _mixer_block(x, num_tokens, channel_dim, token_mlp_dim, channel_mlp_dim, dro
     return tf.keras.layers.Add()([x, y])
 
 
-def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=3):
+def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
     inputs = tf.keras.Input(shape=(input_dim,))
 
     x = tf.keras.layers.Reshape((image_size, image_size, channels))(inputs)

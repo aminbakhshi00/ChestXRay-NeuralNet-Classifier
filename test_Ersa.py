@@ -15,7 +15,7 @@ LAST UPDATE 10/21/21 LSDR METRICS
 '''
 #------------------------------------------------------------------------------------------------------------------
 ## Image processing
-CHANNELS = 3
+CHANNELS = 1
 IMAGE_SIZE = 300
 
 parser = argparse.ArgumentParser()

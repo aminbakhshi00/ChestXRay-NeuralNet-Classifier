@@ -23,7 +23,7 @@ last update 10/21/2021 lsdr
 
 '''
 #------------------------------------------------------------------------------------------------------------------
-
+# This is a first comment.
 ## Process images in parallel
 AUTOTUNE = tf.data.AUTOTUNE
 

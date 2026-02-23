@@ -27,10 +27,6 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=3):
     x = tf.keras.layers.Rescaling(1.0 / 255.0)(x)
     x = tf.keras.layers.Resizing(120, 120)(x)
 
-    x = tf.keras.layers.RandomFlip("horizontal")(x)
-    x = tf.keras.layers.RandomRotation(0.02, fill_mode="reflect")(x)
-    x = tf.keras.layers.RandomContrast(0.1)(x)
-
     patch_size = 8
     patches_per_side = 120 // patch_size
     num_tokens = patches_per_side * patches_per_side

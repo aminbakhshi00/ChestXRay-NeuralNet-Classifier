@@ -51,6 +51,9 @@ CHANNELS = 3
 IMAGE_SIZE = 300
 
 NICKNAME = 'Ersa'
+
+TRAIN_RANDOM_FLIP = tf.keras.layers.RandomFlip("horizontal")
+TRAIN_RANDOM_ROTATION = tf.keras.layers.RandomRotation(0.02, fill_mode="reflect")
 #------------------------------------------------------------------------------------------------------------------
 
 def process_target(target_type):
@@ -123,10 +126,21 @@ def process_path(feature, target):
 
     img = tf.image.resize( img, [IMAGE_SIZE, IMAGE_SIZE])
 
-    # augmentation
-
     img = tf.reshape(img, [-1])
 
+    return img, label
+#------------------------------------------------------------------------------------------------------------------
+
+def process_path_train(feature, target):
+    '''
+          train-time path processing with augmentation only for training data
+    '''
+
+    img, label = process_path(feature, target)
+    img = tf.reshape(img, [IMAGE_SIZE, IMAGE_SIZE, CHANNELS])
+    img = TRAIN_RANDOM_FLIP(img, training=True)
+    img = TRAIN_RANDOM_ROTATION(img, training=True)
+    img = tf.reshape(img, [-1])
     return img, label
 #------------------------------------------------------------------------------------------------------------------
 
@@ -171,7 +185,7 @@ def read_data_balanced(dset_df, num_classes):
     return build_class_balanced_dataset(
         ds_inputs=ds_inputs,
         ds_targets=ds_targets,
-        process_path_fn=process_path,
+        process_path_fn=process_path_train,
         batch_size=BATCH_SIZE,
         autotune=AUTOTUNE,
         epoch_samples=len(ds_inputs),
@@ -239,7 +253,7 @@ def predict_func(test_ds):
         predict fumction
     '''
 
-    final_model = tf.keras.models.load_model('model_{}.keras'.format(NICKNAME))
+    final_model = tf.keras.models.load_model('model_{}.keras'.format(NICKNAME), compile=False)
     res = final_model.predict(test_ds)
     xres = [ tf.argmax(f).numpy() for f in res]
     xdf_dset['results'] = xres

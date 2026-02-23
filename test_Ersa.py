@@ -160,7 +160,7 @@ def predict_func(test_ds):
         predict fumction
     '''
 
-    final_model = tf.keras.models.load_model('model_{}.keras'.format(NICKNAME))
+    final_model = tf.keras.models.load_model('model_{}.keras'.format(NICKNAME), compile=False)
     res = final_model.predict(test_ds)
 
     save_model(final_model)

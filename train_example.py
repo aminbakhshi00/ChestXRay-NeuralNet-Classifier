@@ -43,7 +43,7 @@ BATCH_SIZE = 32
 F1_EVAL_MAX_BATCHES = 100
 VALIDATION_SPLIT = 0.15
 SPLIT_RANDOM_STATE = 42
-EARLY_STOP_PATIENCE = 20
+EARLY_STOP_PATIENCE = 6
 
 ## Image processing
 CHANNELS = 1
@@ -227,7 +227,7 @@ def train_func(train_ds, val_ds):
         monitor='val_f1_macro',
         mode='max',
         patience=EARLY_STOP_PATIENCE,
-        restore_best_weights=False,
+        restore_best_weights=True,
         min_delta=1e-4,
     )
     val_f1_callback = ValidationMacroF1Callback(val_ds)

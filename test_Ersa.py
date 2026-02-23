@@ -34,6 +34,36 @@ AUTOTUNE = tf.data.AUTOTUNE
 NICKNAME = 'Ersa'
 #------------------------------------------------------------------------------------------------------------------
 
+@tf.keras.utils.register_keras_serializable(package="ersa")
+class add_location_to_patches(tf.keras.layers.Layer):
+    def __init__(self, num_tokens, channel_dim, **kwargs):
+        super().__init__(**kwargs)
+        self.num_tokens = num_tokens
+        self.channel_dim = channel_dim
+
+    def build(self, input_shape):
+        self.position_embedding = self.add_weight(
+            name="position_embedding",
+            shape=(1, self.num_tokens, self.channel_dim),
+            initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02),
+            trainable=True,
+        )
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return inputs + self.position_embedding
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "num_tokens": self.num_tokens,
+                "channel_dim": self.channel_dim,
+            }
+        )
+        return config
+#------------------------------------------------------------------------------------------------------------------
+
 def process_target(target_type):
     '''
         1- Multiclass  target = (1...n, text1...textn)
@@ -159,7 +189,14 @@ def predict_func(test_ds):
         predict fumction
     '''
 
-    final_model = tf.keras.models.load_model('model_{}.keras'.format(NICKNAME), compile=False)
+    final_model = tf.keras.models.load_model(
+        'model_{}.keras'.format(NICKNAME),
+        custom_objects={
+            "add_location_to_patches": add_location_to_patches,
+            "ersa>add_location_to_patches": add_location_to_patches,
+        },
+        compile=False,
+    )
     res = final_model.predict(test_ds)
 
     save_model(final_model)

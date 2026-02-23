@@ -1,11 +1,41 @@
 import tensorflow as tf
 
 
+@tf.keras.utils.register_keras_serializable(package="ersa")
+class add_location_to_patches(tf.keras.layers.Layer):
+    def __init__(self, num_tokens, channel_dim, **kwargs):
+        super().__init__(**kwargs)
+        self.num_tokens = num_tokens
+        self.channel_dim = channel_dim
+
+    def build(self, input_shape):
+        self.position_embedding = self.add_weight(
+            name="position_embedding",
+            shape=(1, self.num_tokens, self.channel_dim),
+            initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02),
+            trainable=True,
+        )
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return inputs + self.position_embedding
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "num_tokens": self.num_tokens,
+                "channel_dim": self.channel_dim,
+            }
+        )
+        return config
+
+
 def _mixer_block(x, num_tokens, channel_dim, token_mlp_dim, channel_mlp_dim, dropout_rate):
     y = tf.keras.layers.LayerNormalization(epsilon=1e-6, center=False, scale=False)(x)
     y = tf.keras.layers.Permute((2, 1))(y)
     y = tf.keras.layers.Dense(token_mlp_dim, activation="gelu")(y)
-    # y = tf.keras.layers.Dropout(dropout_rate)(y)
+    y = tf.keras.layers.Dropout(dropout_rate)(y)
     y = tf.keras.layers.Dense(num_tokens)(y)
     y = tf.keras.layers.Permute((2, 1))(y)
     x = tf.keras.layers.Add()([x, y])
@@ -16,7 +46,7 @@ def _mixer_block(x, num_tokens, channel_dim, token_mlp_dim, channel_mlp_dim, dro
     y = tf.keras.layers.Multiply()([gate, value])
     y = tf.keras.layers.Dropout(dropout_rate)(y)
     y = tf.keras.layers.Dense(channel_dim)(y)
-    # y = tf.keras.layers.Dropout(dropout_rate)(y)
+    y = tf.keras.layers.Dropout(dropout_rate)(y)
     return tf.keras.layers.Add()([x, y])
 
 
@@ -38,6 +68,11 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
 
     channel_dim = 256
     x = tf.keras.layers.Dense(channel_dim, activation="gelu")(x)
+    x = add_location_to_patches(
+        num_tokens=num_tokens,
+        channel_dim=channel_dim,
+        name="add_location_to_patches",
+    )(x)
     # x = tf.keras.layers.Dropout(0.1)(x)
 
     for _ in range(4):

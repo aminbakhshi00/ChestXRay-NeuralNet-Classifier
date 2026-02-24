@@ -46,6 +46,7 @@ SPLIT_RANDOM_STATE = 42
 EARLY_STOP_PATIENCE = 10
 LR_PATIENCE = 3
 BALANCE_TEMPERATURE = 0.5
+CLASS_WEIGHT_MAP = {0: 1.0, 1: 1.0, 2: 1.0, 3: 1.0, 4: 1.4}
 
 ## Image processing
 CHANNELS = 1
@@ -253,6 +254,7 @@ def train_func(train_ds, val_ds):
         train_ds,
         epochs=n_epoch,
         validation_data=val_ds,
+        class_weight=CLASS_WEIGHT_MAP,
         callbacks=[val_f1_callback, check_point, early_stop, reduce_lr, f1_callback],
     )
 #------------------------------------------------------------------------------------------------------------------

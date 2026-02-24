@@ -45,6 +45,7 @@ VALIDATION_SPLIT = 0.15
 SPLIT_RANDOM_STATE = 42
 EARLY_STOP_PATIENCE = 10
 LR_PATIENCE = 3
+BALANCE_TEMPERATURE = 0.5
 
 ## Image processing
 CHANNELS = 1
@@ -189,6 +190,7 @@ def read_data_balanced(dset_df, num_classes):
         batch_size=BATCH_SIZE,
         autotune=AUTOTUNE,
         epoch_samples=len(ds_inputs),
+        balance_temperature=BALANCE_TEMPERATURE,
     )
 #------------------------------------------------------------------------------------------------------------------
 

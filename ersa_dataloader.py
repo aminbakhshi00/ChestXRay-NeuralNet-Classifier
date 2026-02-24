@@ -17,11 +17,13 @@ def build_class_balanced_dataset(
     autotune,
     epoch_samples,
     seed=42,
+    balance_temperature=0.0,
 ):
     labels = np.argmax(ds_targets, axis=1)
     num_classes = ds_targets.shape[1]
 
     class_datasets = []
+    class_counts = []
     for class_idx in range(num_classes):
         class_mask = labels == class_idx
         if not np.any(class_mask):
@@ -29,6 +31,7 @@ def build_class_balanced_dataset(
 
         class_inputs = ds_inputs[class_mask]
         class_targets = ds_targets[class_mask]
+        class_counts.append(len(class_inputs))
 
         class_ds = tf.data.Dataset.from_tensor_slices((class_inputs, class_targets))
         class_ds = class_ds.shuffle(
@@ -43,7 +46,14 @@ def build_class_balanced_dataset(
     if not class_datasets:
         raise ValueError("No class datasets were created from the provided inputs.")
 
-    weights = [1.0 / len(class_datasets)] * len(class_datasets)
+    class_counts = np.array(class_counts, dtype=np.float32)
+    if balance_temperature == 0.0:
+        weights = np.ones_like(class_counts) / len(class_counts)
+    else:
+        weights = np.power(class_counts, balance_temperature)
+        weights = weights / np.sum(weights)
+
+    weights = weights.tolist()
     dataset = tf.data.Dataset.sample_from_datasets(class_datasets, weights=weights, seed=seed)
     dataset = dataset.take(int(epoch_samples))
     dataset = dataset.batch(batch_size)

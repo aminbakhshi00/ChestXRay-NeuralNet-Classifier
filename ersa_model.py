@@ -31,74 +31,83 @@ class add_location_to_patches(tf.keras.layers.Layer):
         return config
 
 
-def _mixer_block(x, num_tokens, channel_dim, token_mlp_dim, channel_mlp_dim, dropout_rate):
-    y = tf.keras.layers.LayerNormalization(epsilon=1e-6, center=False, scale=False)(x)
+def _patchify_non_overlapping(x, resized_image_size, patch_size, channels):
+    patches_per_side = resized_image_size // patch_size
+    num_patches = patches_per_side * patches_per_side
+    patch_dim = patch_size * patch_size * channels
+
+    x = tf.keras.layers.Reshape(
+        (patches_per_side, patch_size, patches_per_side, patch_size, channels)
+    )(x)
+    x = tf.keras.layers.Permute((1, 3, 2, 4, 5))(x)
+    x = tf.keras.layers.Reshape((num_patches, patch_dim))(x)
+    return x, num_patches
+
+
+def _mixer_block(x, num_patches, embed_dim, token_mlp_dim, channel_mlp_dim, dropout_rate):
+    # Token mixing (information exchange across patches)
+    y = tf.keras.layers.LayerNormalization(epsilon=1e-6)(x)
     y = tf.keras.layers.Permute((2, 1))(y)
     y = tf.keras.layers.Dense(token_mlp_dim, activation="gelu")(y)
     y = tf.keras.layers.Dropout(dropout_rate)(y)
-    y = tf.keras.layers.Dense(num_tokens)(y)
+    y = tf.keras.layers.Dense(num_patches)(y)
     y = tf.keras.layers.Permute((2, 1))(y)
     x = tf.keras.layers.Add()([x, y])
 
-    y = tf.keras.layers.LayerNormalization(epsilon=1e-6, center=False, scale=False)(x)
-    gate = tf.keras.layers.Dense(channel_mlp_dim, activation="sigmoid")(y)
-    value = tf.keras.layers.Dense(channel_mlp_dim, activation="gelu")(y)
-    y = tf.keras.layers.Multiply()([gate, value])
+    # Channel mixing (feature learning inside each patch token)
+    y = tf.keras.layers.LayerNormalization(epsilon=1e-6)(x)
+    y = tf.keras.layers.Dense(channel_mlp_dim, activation="gelu")(y)
     y = tf.keras.layers.Dropout(dropout_rate)(y)
-    y = tf.keras.layers.Dense(channel_dim)(y)
+    y = tf.keras.layers.Dense(embed_dim)(y)
     y = tf.keras.layers.Dropout(dropout_rate)(y)
-    return tf.keras.layers.Add()([x, y])
+    x = tf.keras.layers.Add()([x, y])
+    return x
 
 
 def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
+    resized_image_size = 120
+    patch_size = 8
+    embed_dim = 192
+    token_mlp_dim = 128
+    channel_mlp_dim = 384
+    num_mixer_blocks = 4
+    dropout_rate = 0.1
+
     inputs = tf.keras.Input(shape=(input_dim,))
 
     x = tf.keras.layers.Reshape((image_size, image_size, channels))(inputs)
     x = tf.keras.layers.Rescaling(1.0 / 255.0)(x)
-    x = tf.keras.layers.Resizing(120, 120)(x)
+    x = tf.keras.layers.Resizing(resized_image_size, resized_image_size)(x)
 
-    patch_size = 8
-    patches_per_side = 120 // patch_size
-    num_tokens = patches_per_side * patches_per_side
-    patch_dim = patch_size * patch_size * channels
+    x, num_patches = _patchify_non_overlapping(
+        x=x,
+        resized_image_size=resized_image_size,
+        patch_size=patch_size,
+        channels=channels,
+    )
 
-    x = tf.keras.layers.Reshape((patches_per_side, patch_size, patches_per_side, patch_size, channels))(x)
-    x = tf.keras.layers.Permute((1, 3, 2, 4, 5))(x)
-    x = tf.keras.layers.Reshape((num_tokens, patch_dim))(x)
-
-    channel_dim = 256
-    x = tf.keras.layers.Dense(channel_dim, activation="gelu")(x)
+    # Shared trainable Dense projection for every patch token
+    x = tf.keras.layers.Dense(embed_dim, activation="gelu")(x)
     x = add_location_to_patches(
-        num_tokens=num_tokens,
-        channel_dim=channel_dim,
+        num_tokens=num_patches,
+        channel_dim=embed_dim,
         name="add_location_to_patches",
     )(x)
-    # x = tf.keras.layers.Dropout(0.1)(x)
 
-    for _ in range(4):
+    for _ in range(num_mixer_blocks):
         x = _mixer_block(
             x,
-            num_tokens=num_tokens,
-            channel_dim=channel_dim,
-            token_mlp_dim=128,
-            channel_mlp_dim=512,
-            dropout_rate=0.05,
+            num_patches=num_patches,
+            embed_dim=embed_dim,
+            token_mlp_dim=token_mlp_dim,
+            channel_mlp_dim=channel_mlp_dim,
+            dropout_rate=dropout_rate,
         )
 
-    x = tf.keras.layers.LayerNormalization(epsilon=1e-6, center=False, scale=False)(x)
-    x_mean = tf.keras.layers.GlobalAveragePooling1D()(x)
-    x_max = tf.keras.layers.GlobalMaxPooling1D()(x)
-    x = tf.keras.layers.Concatenate()([x_mean, x_max])
-
-    branch_a = tf.keras.layers.Dense(384, activation="gelu")(x)
-    branch_a = tf.keras.layers.Dropout(0.1)(branch_a)
-    branch_b = tf.keras.layers.Dense(384, activation="relu")(x)
-    branch_b = tf.keras.layers.Dropout(0.1)(branch_b)
-
-    x = tf.keras.layers.Concatenate()([branch_a, branch_b])
-    x = tf.keras.layers.Add()([x, tf.keras.layers.Dense(768)(tf.keras.layers.Concatenate()([x_mean, x_max]))])
-    x = tf.keras.layers.Dense(192, activation="gelu")(x)
-    # x = tf.keras.layers.Dropout(0.2)(x)
+    x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(x)
+    x = tf.keras.layers.GlobalAveragePooling1D()(x)
+    x = tf.keras.layers.Dense(256, activation="gelu")(x)
+    x = tf.keras.layers.Dropout(0.2)(x)
     outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(x)
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs)

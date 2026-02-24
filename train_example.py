@@ -44,6 +44,7 @@ F1_EVAL_MAX_BATCHES = 200
 VALIDATION_SPLIT = 0.15
 SPLIT_RANDOM_STATE = 42
 EARLY_STOP_PATIENCE = 6
+LR_PATIENCE = 3
 
 ## Image processing
 CHANNELS = 1
@@ -230,6 +231,13 @@ def train_func(train_ds, val_ds):
         restore_best_weights=True,
         min_delta=1e-4,
     )
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
+        monitor='val_loss',
+        mode='min',
+        factor=0.5,
+        patience=LR_PATIENCE,
+        min_lr=1e-6,
+    )
     val_f1_callback = ValidationMacroF1Callback(val_ds)
     f1_callback = PerClassMacroF1Callback(
         train_ds,
@@ -243,7 +251,7 @@ def train_func(train_ds, val_ds):
         train_ds,
         epochs=n_epoch,
         validation_data=val_ds,
-        callbacks=[val_f1_callback, check_point, early_stop, f1_callback],
+        callbacks=[val_f1_callback, check_point, early_stop, reduce_lr, f1_callback],
     )
 #------------------------------------------------------------------------------------------------------------------
 

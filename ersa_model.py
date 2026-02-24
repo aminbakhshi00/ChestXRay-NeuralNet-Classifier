@@ -82,7 +82,7 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
             channel_dim=channel_dim,
             token_mlp_dim=128,
             channel_mlp_dim=512,
-            dropout_rate=0.1,
+            dropout_rate=0.05,
         )
 
     x = tf.keras.layers.LayerNormalization(epsilon=1e-6, center=False, scale=False)(x)
@@ -103,8 +103,15 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-        loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+        loss=tf.keras.losses.CategoricalFocalCrossentropy(
+            alpha=[1.0, 1.0, 1.07, 1.02, 1.55],
+            gamma=1.0,
+            from_logits=False,
+            label_smoothing=0.0,
+            axis=-1,
+            reduction="sum_over_batch_size",
+        ),
         metrics=["accuracy"],
     )
     return model

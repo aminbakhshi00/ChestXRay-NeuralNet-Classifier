@@ -150,11 +150,11 @@ def get_target(num_classes):
 
     y_target = np.array(xdf_dset['target_class'].apply(lambda x: ([int(i) for i in str(x).split(",")])))
 
-    end = np.zeros(num_classes)
+    end = np.zeros(num_classes, dtype=np.float32)
     for s1 in y_target:
         end = np.vstack([end, s1])
 
-    y_target = np.array(end[1:])
+    y_target = np.array(end[1:], dtype=np.float32)
 
     return y_target
 #------------------------------------------------------------------------------------------------------------------

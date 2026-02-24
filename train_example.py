@@ -40,7 +40,7 @@ os.chdir(OR_PATH) # Come back to the folder where the code resides , all files w
 
 n_epoch = 50
 BATCH_SIZE = 32
-F1_EVAL_MAX_BATCHES = 100
+F1_EVAL_MAX_BATCHES = 200
 VALIDATION_SPLIT = 0.15
 SPLIT_RANDOM_STATE = 42
 EARLY_STOP_PATIENCE = 6
@@ -153,11 +153,11 @@ def get_target(dset_df, num_classes):
 
     y_target = np.array(dset_df['target_class'].apply(lambda x: ([int(i) for i in str(x).split(",")])))
 
-    end = np.zeros(num_classes)
+    end = np.zeros(num_classes, dtype=np.float32)
     for s1 in y_target:
         end = np.vstack([end, s1])
 
-    y_target = np.array(end[1:])
+    y_target = np.array(end[1:], dtype=np.float32)
 
     return y_target
 #------------------------------------------------------------------------------------------------------------------

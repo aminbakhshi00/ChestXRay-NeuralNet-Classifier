@@ -43,7 +43,7 @@ BATCH_SIZE = 32
 F1_EVAL_MAX_BATCHES = 200
 VALIDATION_SPLIT = 0.15
 SPLIT_RANDOM_STATE = 42
-EARLY_STOP_PATIENCE = 6
+EARLY_STOP_PATIENCE = 10
 LR_PATIENCE = 3
 
 ## Image processing
@@ -234,7 +234,7 @@ def train_func(train_ds, val_ds):
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
         monitor='val_loss',
         mode='min',
-        factor=0.5,
+        factor=0.2,
         patience=LR_PATIENCE,
         min_lr=1e-6,
     )

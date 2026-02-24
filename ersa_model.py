@@ -104,9 +104,7 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
-        loss=tf.keras.losses.CategoricalFocalCrossentropy(
-            alpha=[1.0, 1.0, 1.07, 1.02, 1.55],
-            gamma=1.0,
+        loss=tf.keras.losses.CategoricalCrossentropy(
             from_logits=False,
             label_smoothing=0.0,
             axis=-1,

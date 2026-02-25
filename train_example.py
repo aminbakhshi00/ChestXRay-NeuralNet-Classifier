@@ -235,9 +235,9 @@ def train_func(train_ds, val_ds):
         min_delta=1e-4,
     )
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-        monitor='val_loss',
-        mode='min',
-        factor=0.2,
+        monitor='val_f1_macro',
+        mode='max',
+        factor=0.5,
         patience=LR_PATIENCE,
         min_lr=1e-6,
     )

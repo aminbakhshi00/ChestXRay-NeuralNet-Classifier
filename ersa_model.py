@@ -64,6 +64,41 @@ def _mixer_block(x, num_patches, embed_dim, token_mlp_dim, channel_mlp_dim, drop
     return x
 
 
+def _dense_mixer_stack(
+    x,
+    num_blocks,
+    num_patches,
+    embed_dim,
+    token_mlp_dim,
+    channel_mlp_dim,
+    dropout_rate,
+):
+    # DenseNet-style connectivity:
+    # each new block sees all previous block outputs.
+    block_outputs = [x]
+
+    for block_index in range(num_blocks):
+        if len(block_outputs) == 1:
+            block_input = block_outputs[0]
+        else:
+            block_input = tf.keras.layers.Concatenate(axis=-1)(block_outputs)
+            block_input = tf.keras.layers.Dense(embed_dim, activation="gelu")(block_input)
+
+        block_output = _mixer_block(
+            block_input,
+            num_patches=num_patches,
+            embed_dim=embed_dim,
+            token_mlp_dim=token_mlp_dim,
+            channel_mlp_dim=channel_mlp_dim,
+            dropout_rate=dropout_rate,
+        )
+        block_outputs.append(block_output)
+
+    x = tf.keras.layers.Concatenate(axis=-1)(block_outputs)
+    x = tf.keras.layers.Dense(embed_dim, activation="gelu")(x)
+    return x
+
+
 def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
     resized_image_size = 120
     patch_size = 8
@@ -71,7 +106,7 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
     token_mlp_dim = 128
     channel_mlp_dim = 384
     num_mixer_blocks = 4
-    dropout_rate = 0.1
+    dropout_rate = 0.05
 
     inputs = tf.keras.Input(shape=(input_dim,))
 
@@ -94,15 +129,15 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
         name="add_location_to_patches",
     )(x)
 
-    for _ in range(num_mixer_blocks):
-        x = _mixer_block(
-            x,
-            num_patches=num_patches,
-            embed_dim=embed_dim,
-            token_mlp_dim=token_mlp_dim,
-            channel_mlp_dim=channel_mlp_dim,
-            dropout_rate=dropout_rate,
-        )
+    x = _dense_mixer_stack(
+        x=x,
+        num_blocks=num_mixer_blocks,
+        num_patches=num_patches,
+        embed_dim=embed_dim,
+        token_mlp_dim=token_mlp_dim,
+        channel_mlp_dim=channel_mlp_dim,
+        dropout_rate=dropout_rate,
+    )
 
     x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(x)
     x = tf.keras.layers.GlobalAveragePooling1D()(x)
@@ -112,7 +147,7 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=2e-4),
         loss=tf.keras.losses.CategoricalCrossentropy(
             from_logits=False,
             label_smoothing=0.0,

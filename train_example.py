@@ -11,7 +11,7 @@ from sklearn.metrics import f1_score, cohen_kappa_score, accuracy_score,  matthe
 from tensorflow.keras.utils import to_categorical
 from ersa_model import build_dense_patch_mlp
 from ersa_callbacks import PerClassMacroF1Callback, ValidationMacroF1Callback
-from ersa_dataloader import build_standard_dataset, build_class_balanced_dataset
+from ersa_dataloader import build_standard_dataset
 
 #------------------------------------------------------------------------------------------------------------------
 
@@ -40,13 +40,12 @@ os.chdir(OR_PATH) # Come back to the folder where the code resides , all files w
 
 n_epoch = 50
 BATCH_SIZE = 32
+NUM_SUBMODELS = 4
 F1_EVAL_MAX_BATCHES = 200
 VALIDATION_SPLIT = 0.15
 SPLIT_RANDOM_STATE = 42
 EARLY_STOP_PATIENCE = 7
 LR_PATIENCE = 5
-BALANCE_TEMPERATURE = 0.6
-CLASS_WEIGHT_MAP = {0: 1.0, 1: 1.1, 2: 1.0, 3: 1.05, 4: 1.7}
 
 ## Image processing
 CHANNELS = 1
@@ -142,6 +141,7 @@ def process_path_train(feature, target):
     img = tf.reshape(img, [IMAGE_SIZE, IMAGE_SIZE, CHANNELS])
     img = TRAIN_RANDOM_FLIP(img, training=True)
     img = TRAIN_RANDOM_ROTATION(img, training=True)
+    img = tf.clip_by_value(img, 0.0, 255.0)
     img = tf.reshape(img, [-1])
     return img, label
 #------------------------------------------------------------------------------------------------------------------
@@ -176,25 +176,6 @@ def read_data(dset_df, num_classes):
     return build_standard_dataset(ds_inputs, ds_targets, process_path, BATCH_SIZE, AUTOTUNE)
 #------------------------------------------------------------------------------------------------------------------
 
-def read_data_balanced(dset_df, num_classes):
-    '''
-          reads the train dataset with class-balanced sampling
-    '''
-
-    ds_inputs = np.array(DATA_DIR + dset_df['id'])
-    ds_targets = get_target(dset_df, num_classes)
-
-    return build_class_balanced_dataset(
-        ds_inputs=ds_inputs,
-        ds_targets=ds_targets,
-        process_path_fn=process_path_train,
-        batch_size=BATCH_SIZE,
-        autotune=AUTOTUNE,
-        epoch_samples=len(ds_inputs),
-        balance_temperature=BALANCE_TEMPERATURE,
-    )
-#------------------------------------------------------------------------------------------------------------------
-
 def save_model(model):
     '''
          receives the model and print the summary into a .txt file
@@ -211,18 +192,130 @@ def model_definition():
         image_size=IMAGE_SIZE,
         channels=CHANNELS,
     )
-
-    save_model(model) #print Summary
     return model
 #------------------------------------------------------------------------------------------------------------------
 
-def train_func(train_ds, val_ds):
+def read_data_train_standard(dset_df, num_classes, seed):
     '''
-        train the model
+          reads one train subset and applies train-only augmentation
     '''
 
+    ds_inputs = np.array(DATA_DIR + dset_df['id'])
+    ds_targets = get_target(dset_df, num_classes)
+    train_ds = tf.data.Dataset.from_tensor_slices((ds_inputs, ds_targets))
+    train_ds = train_ds.shuffle(
+        buffer_size=max(len(ds_inputs), 1),
+        seed=seed,
+        reshuffle_each_iteration=True,
+    )
+    train_ds = train_ds.map(process_path_train, num_parallel_calls=AUTOTUNE)
+    train_ds = train_ds.batch(BATCH_SIZE)
+    return train_ds.prefetch(AUTOTUNE)
+#------------------------------------------------------------------------------------------------------------------
+
+def build_submodel_train_splits(
+    xdf_train,
+    class_names,
+    num_submodels=NUM_SUBMODELS,
+    anchor_class='class5',
+    seed=SPLIT_RANDOM_STATE,
+):
+    '''
+          builds per-submodel train data using:
+          - disjoint partitions for non-anchor classes
+          - top-up sampling to match anchor class count
+    '''
+
+    class_name_list = [str(name) for name in class_names]
+    if anchor_class not in class_name_list:
+        raise ValueError("Required anchor class '{}' was not found.".format(anchor_class))
+
+    class_frames = {}
+    for class_name in class_name_list:
+        class_df = xdf_train[xdf_train['target'] == class_name].copy().reset_index(drop=True)
+        if class_df.empty:
+            raise ValueError("Class '{}' has no training rows.".format(class_name))
+        class_frames[class_name] = class_df
+
+    anchor_df = class_frames[anchor_class].copy().reset_index(drop=True)
+    target_count_per_class = len(anchor_df)
+    print("Anchor class '{}' rows per submodel: {}".format(anchor_class, target_count_per_class))
+
+    non_anchor_partitions = {}
+    for class_name in class_name_list:
+        if class_name == anchor_class:
+            continue
+        shuffled_df = class_frames[class_name].sample(frac=1.0, random_state=seed).reset_index(drop=True)
+        index_chunks = np.array_split(np.arange(len(shuffled_df)), num_submodels)
+        chunks = [shuffled_df.iloc[idx_chunk].reset_index(drop=True) for idx_chunk in index_chunks]
+        non_anchor_partitions[class_name] = chunks
+
+        covered_ids = set()
+        for chunk in chunks:
+            covered_ids.update(chunk['id'].tolist())
+        original_ids = set(shuffled_df['id'].tolist())
+        if covered_ids != original_ids:
+            raise ValueError("Coverage check failed for class '{}' partitions.".format(class_name))
+
+    submodel_splits = []
+    for model_index in range(num_submodels):
+        split_parts = [anchor_df.copy()]
+
+        for class_offset, class_name in enumerate(class_name_list):
+            if class_name == anchor_class:
+                continue
+
+            base_chunk = non_anchor_partitions[class_name][model_index].copy().reset_index(drop=True)
+            needed = target_count_per_class - len(base_chunk)
+
+            if needed > 0:
+                top_up = class_frames[class_name].sample(
+                    n=needed,
+                    replace=True,
+                    random_state=seed + (model_index + 1) * 100 + class_offset,
+                ).reset_index(drop=True)
+                class_chunk = pd.concat([base_chunk, top_up], ignore_index=True)
+            elif needed < 0:
+                class_chunk = base_chunk.sample(
+                    n=target_count_per_class,
+                    random_state=seed + (model_index + 1) * 100 + class_offset,
+                ).reset_index(drop=True)
+            else:
+                class_chunk = base_chunk
+
+            split_parts.append(class_chunk)
+
+        split_df = pd.concat(split_parts, ignore_index=True)
+        split_df = split_df.sample(frac=1.0, random_state=seed + model_index).reset_index(drop=True)
+
+        split_counts = split_df['target'].value_counts()
+        split_report = ", ".join(
+            "{}:{}".format(class_name, int(split_counts.get(class_name, 0)))
+            for class_name in class_name_list
+        )
+        print("Submodel {} class counts -> {}".format(model_index + 1, split_report))
+
+        for class_name in class_name_list:
+            if int(split_counts.get(class_name, 0)) != target_count_per_class:
+                raise ValueError(
+                    "Class '{}' in submodel {} is not balanced to anchor count.".format(
+                        class_name, model_index + 1
+                    )
+                )
+
+        submodel_splits.append(split_df)
+
+    return submodel_splits
+#------------------------------------------------------------------------------------------------------------------
+
+def train_single_submodel(model_index, train_ds, val_ds):
+    '''
+        train one branch model and save best checkpoint
+    '''
+
+    checkpoint_path = 'tmp_model_{}_{}.keras'.format(NICKNAME, model_index + 1)
     check_point = tf.keras.callbacks.ModelCheckpoint(
-        'model_{}.keras'.format(NICKNAME),
+        checkpoint_path,
         monitor='val_f1_macro',
         mode='max',
         save_best_only=True,
@@ -254,9 +347,34 @@ def train_func(train_ds, val_ds):
         train_ds,
         epochs=n_epoch,
         validation_data=val_ds,
-        class_weight=CLASS_WEIGHT_MAP,
         callbacks=[val_f1_callback, check_point, early_stop, reduce_lr, f1_callback],
     )
+    return checkpoint_path
+#------------------------------------------------------------------------------------------------------------------
+
+def build_soft_vote_ensemble(model_paths):
+    '''
+        builds one model that averages probabilities from all branch models
+    '''
+
+    branch_models = []
+    for model_index, model_path in enumerate(model_paths):
+        branch_model = tf.keras.models.load_model(model_path, compile=False)
+        branch_model.name = "branch_model_{}".format(model_index + 1)
+        branch_model.trainable = False
+        branch_models.append(branch_model)
+
+    ensemble_input = tf.keras.Input(shape=(INPUTS_r,), name='ensemble_input')
+    branch_outputs = [branch_model(ensemble_input, training=False) for branch_model in branch_models]
+    ensemble_output = tf.keras.layers.Average(name='soft_vote_average')(branch_outputs)
+
+    return tf.keras.Model(inputs=ensemble_input, outputs=ensemble_output, name='ersa_soft_vote_ensemble')
+#------------------------------------------------------------------------------------------------------------------
+
+def cleanup_temp_models(model_paths):
+    for model_path in model_paths:
+        if os.path.exists(model_path):
+            os.remove(model_path)
 #------------------------------------------------------------------------------------------------------------------
 
 def predict_func(test_ds):
@@ -377,9 +495,37 @@ def main():
         stratify=xdf_train_full['target'],
     )
 
-    train_ds = read_data_balanced(xdf_train, OUTPUTS_a)
     val_ds = read_data(xdf_val, OUTPUTS_a)
-    train_func(train_ds, val_ds)
+    train_splits = build_submodel_train_splits(
+        xdf_train=xdf_train,
+        class_names=class_names,
+        num_submodels=NUM_SUBMODELS,
+        anchor_class='class5',
+        seed=SPLIT_RANDOM_STATE,
+    )
+
+    temp_model_paths = []
+    try:
+        for model_index, train_split_df in enumerate(train_splits):
+            tf.keras.backend.clear_session()
+            train_ds = read_data_train_standard(
+                dset_df=train_split_df,
+                num_classes=OUTPUTS_a,
+                seed=SPLIT_RANDOM_STATE + model_index,
+            )
+            temp_model_path = train_single_submodel(
+                model_index=model_index,
+                train_ds=train_ds,
+                val_ds=val_ds,
+            )
+            temp_model_paths.append(temp_model_path)
+
+        tf.keras.backend.clear_session()
+        ensemble_model = build_soft_vote_ensemble(temp_model_paths)
+        ensemble_model.save('model_{}.keras'.format(NICKNAME))
+        save_model(ensemble_model)
+    finally:
+        cleanup_temp_models(temp_model_paths)
 
     # Preprocessing Test dataset
 

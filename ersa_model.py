@@ -101,12 +101,12 @@ def _dense_mixer_stack(
 
 def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
     resized_image_size = 120
-    patch_size = 8
-    embed_dim = 128
-    token_mlp_dim = 64
-    channel_mlp_dim = 256
-    num_mixer_blocks = 3
-    dropout_rate = 0.15
+    patch_size = 10
+    embed_dim = 96
+    token_mlp_dim = 48
+    channel_mlp_dim = 192
+    num_mixer_blocks = 2
+    dropout_rate = 0.20
 
     inputs = tf.keras.Input(shape=(input_dim,))
 
@@ -141,19 +141,19 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
 
     x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(x)
     x = tf.keras.layers.GlobalAveragePooling1D()(x)
-    x = tf.keras.layers.Dense(256, activation="gelu")(x)
-    x = tf.keras.layers.Dropout(0.2)(x)
+    x = tf.keras.layers.Dense(128, activation="gelu")(x)
+    x = tf.keras.layers.Dropout(0.3)(x)
     outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(x)
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     model.compile(
         optimizer=tf.keras.optimizers.AdamW(
-            learning_rate=2e-4,
-            weight_decay=1e-4,
+            learning_rate=1.5e-4,
+            weight_decay=2e-4,
         ),
         loss=tf.keras.losses.CategoricalCrossentropy(
             from_logits=False,
-            label_smoothing=0.0,
+            label_smoothing=0.05,
             axis=-1,
             reduction="sum_over_batch_size",
         ),

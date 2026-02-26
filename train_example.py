@@ -43,10 +43,10 @@ BATCH_SIZE = 32
 F1_EVAL_MAX_BATCHES = 200
 VALIDATION_SPLIT = 0.15
 SPLIT_RANDOM_STATE = 42
-EARLY_STOP_PATIENCE = 10
-LR_PATIENCE = 3
-BALANCE_TEMPERATURE = 0.4
-CLASS_WEIGHT_MAP = {0: 1.0, 1: 1.1, 2: 1.0, 3: 1.0, 4: 1.7}
+EARLY_STOP_PATIENCE = 7
+LR_PATIENCE = 5
+BALANCE_TEMPERATURE = 0.6
+CLASS_WEIGHT_MAP = {0: 1.0, 1: 1.1, 2: 1.0, 3: 1.05, 4: 1.7}
 
 ## Image processing
 CHANNELS = 1
@@ -241,7 +241,7 @@ def train_func(train_ds, val_ds):
         patience=LR_PATIENCE,
         min_lr=1e-6,
     )
-    val_f1_callback = ValidationMacroF1Callback(val_ds)
+    val_f1_callback = ValidationMacroF1Callback(val_ds, OUTPUTS_a, class_names=class_names)
     f1_callback = PerClassMacroF1Callback(
         train_ds,
         OUTPUTS_a,

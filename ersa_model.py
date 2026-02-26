@@ -102,11 +102,11 @@ def _dense_mixer_stack(
 def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
     resized_image_size = 120
     patch_size = 8
-    embed_dim = 192
-    token_mlp_dim = 128
-    channel_mlp_dim = 384
-    num_mixer_blocks = 4
-    dropout_rate = 0.05
+    embed_dim = 128
+    token_mlp_dim = 64
+    channel_mlp_dim = 256
+    num_mixer_blocks = 3
+    dropout_rate = 0.15
 
     inputs = tf.keras.Input(shape=(input_dim,))
 
@@ -147,7 +147,10 @@ def build_dense_patch_mlp(input_dim, num_classes, image_size=300, channels=1):
 
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=2e-4),
+        optimizer=tf.keras.optimizers.AdamW(
+            learning_rate=2e-4,
+            weight_decay=1e-4,
+        ),
         loss=tf.keras.losses.CategoricalCrossentropy(
             from_logits=False,
             label_smoothing=0.0,

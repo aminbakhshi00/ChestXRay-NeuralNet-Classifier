@@ -1,3 +1,8 @@
+For more details, you can see [report_Ersa.pdf](report_Ersa.pdf) above!
+
+This repository uses the same dataset and classification problem as the author’s other project, [ChestXRay-CNN-Classifier](https://github.com/aminbakhshi00/ChestXRay-CNN-Classifier). In this version, the model is built with pure dense layers and does not use CNNs. The resulting F1 score is **0.34**, compared to **0.598** in the CNN-based project.
+
+
 # Competition Report
 ## Chest X-ray Classification (5 Classes)
 

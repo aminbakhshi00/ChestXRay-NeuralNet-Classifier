@@ -14,9 +14,8 @@ LAST UPDATE 10/21/21 LSDR METRICS
 02/14/2022 LSDR CHECK CONSISTENCY
 '''
 #------------------------------------------------------------------------------------------------------------------
-
 ## Image processing
-CHANNELS = 3
+CHANNELS = 1
 IMAGE_SIZE = 300
 
 parser = argparse.ArgumentParser()
@@ -33,6 +32,36 @@ BATCH_SIZE = 32
 AUTOTUNE = tf.data.AUTOTUNE
 
 NICKNAME = 'Ersa'
+#------------------------------------------------------------------------------------------------------------------
+
+@tf.keras.utils.register_keras_serializable(package="ersa")
+class add_location_to_patches(tf.keras.layers.Layer):
+    def __init__(self, num_tokens, channel_dim, **kwargs):
+        super().__init__(**kwargs)
+        self.num_tokens = num_tokens
+        self.channel_dim = channel_dim
+
+    def build(self, input_shape):
+        self.position_embedding = self.add_weight(
+            name="position_embedding",
+            shape=(1, self.num_tokens, self.channel_dim),
+            initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02),
+            trainable=True,
+        )
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return inputs + self.position_embedding
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "num_tokens": self.num_tokens,
+                "channel_dim": self.channel_dim,
+            }
+        )
+        return config
 #------------------------------------------------------------------------------------------------------------------
 
 def process_target(target_type):
@@ -121,11 +150,11 @@ def get_target(num_classes):
 
     y_target = np.array(xdf_dset['target_class'].apply(lambda x: ([int(i) for i in str(x).split(",")])))
 
-    end = np.zeros(num_classes)
+    end = np.zeros(num_classes, dtype=np.float32)
     for s1 in y_target:
         end = np.vstack([end, s1])
 
-    y_target = np.array(end[1:])
+    y_target = np.array(end[1:], dtype=np.float32)
 
     return y_target
 #------------------------------------------------------------------------------------------------------------------
@@ -160,7 +189,14 @@ def predict_func(test_ds):
         predict fumction
     '''
 
-    final_model = tf.keras.models.load_model('model_{}.keras'.format(NICKNAME))
+    final_model = tf.keras.models.load_model(
+        'model_{}.keras'.format(NICKNAME),
+        custom_objects={
+            "add_location_to_patches": add_location_to_patches,
+            "ersa>add_location_to_patches": add_location_to_patches,
+        },
+        compile=False,
+    )
     res = final_model.predict(test_ds)
 
     save_model(final_model)
